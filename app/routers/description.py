@@ -45,6 +45,14 @@ class DescriptionRequest(BaseModel):
     workDuration: Optional[str] = None
     individualCompanyName: Optional[str] = None
     extractedText: Optional[str] = None
+    # Additional fields for enhanced CROP form
+    yourName: Optional[str] = None
+    yourIdentity: Optional[str] = None
+    educationRequirements: Optional[str] = None
+    industryExpertise: Optional[str] = None
+    preferredExperience: Optional[str] = None  # Changed to string (formatted from frontend)
+    languagePreference: Optional[str] = None
+    genderPreference: Optional[str] = None
 
 
 @router.post("/extract-text")

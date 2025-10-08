@@ -63,6 +63,16 @@ def generate_description(data):
 
     # Fields specific to "Individual"
     eligibility = data.get("eligibility", "") or "Not specified"
+    
+    # Additional enhanced fields for CROP form
+    your_name = data.get("yourName", "") or "Not specified"
+    your_identity = data.get("yourIdentity", "") or "Not specified"
+    education_requirements = data.get("educationRequirements", "") or "Not specified"
+    industry_expertise = data.get("industryExpertise", "") or "Not specified"
+    # preferredExperience is now sent as formatted string from frontend
+    preferred_experience_text = data.get("preferredExperience", "") or "Not specified"
+    language_preference = data.get("languagePreference", "") or "Not specified"
+    gender_preference = data.get("genderPreference", "") or "Not specified"
 
     # LLM setup - use environment variable for API key
     groq_api_key = os.getenv("GROQ_API_KEY")
@@ -90,7 +100,15 @@ def generate_description(data):
         "workDuration": work_duration,
         "workMode": work_mode,
         "timeCommitment": time_commitment,
-        "eligibility": eligibility
+        "eligibility": eligibility,
+        # Enhanced fields for CROP form
+        "yourName": your_name,
+        "yourIdentity": your_identity,
+        "educationRequirements": education_requirements,
+        "industryExpertise": industry_expertise,
+        "preferredExperience": preferred_experience_text,
+        "languagePreference": language_preference,
+        "genderPreference": gender_preference
     }
     
     # Define formats based on companyType and postType
@@ -597,47 +615,54 @@ Format:
     prompt = ChatPromptTemplate.from_template(f"""
     {intro_instruction}
 
-    Generate a professional and polished opportunity post using the following details:
+    Generate a professional and polished opportunity post using ONLY the following details. DO NOT add skills, experience ranges, or qualifications that are not provided:
 
+    Company Details:
+    - Company Name: {{companyName}}
     - Individual Name: {{individualName}}
+    
+    Opportunity Details:
     - Post Type: {{postType}}
-    - Location: {{location}}
     - Job Title: {{title}}
-    - Package: {{package}}
-    - Last Date: {{lastDate}}
-    - Vacancy: {{vacancy}}
-    - Skills: {{skills}}
-    - Keywords: {{keywords}}
-    - Work Duration: {{workDuration}}
+    - Location: {{location}}
     - Work Mode: {{workMode}}
+    - Work Duration: {{workDuration}}
     - Time Commitment: {{timeCommitment}}
+    - Vacancy: {{vacancy}}
+    - Last Date: {{lastDate}}
+    - Package: {{package}}
+    
+    Requirements (USE EXACTLY AS PROVIDED):
+    - Required Skills: {{skills}}
+    - Keywords: {{keywords}}
+    - Education Requirements: {{educationRequirements}}
+    - Preferred Experience: {{preferredExperience}}
+    - Industry Expertise: {{industryExpertise}}
+    - Language Preference: {{languagePreference}}
+    - Gender Preference: {{genderPreference}}
     - Eligibility: {{eligibility}}
 
     Important words to bold: {', '.join(important_words) if important_words else 'None'}
 
     {format_instruction}
 
-    Instructions:
-    - Use only <b>, not ** for bold.or else ill fail you
-    - Your response should be suitable for direct copy-pasting into a web page or email client that supports HTML formatting. Use only valid HTML tags.
-    - Use bullet points where appropriate.
-    - For all <ul> lists, ensure there are NO extra line breaks or spaces between <li> elements.
-    - Ensure exactly one <br> tags between sections for clean spacing.
-    - Output should be ready to copy-paste into LinkedIn/email without editing.
-    - Use the company name naturally — don't include 'companyType'.
-    - Strictly follow the format provided above. Do NOT add extra fields or sections.
-    - Within paragraph sections, bold the important words listed above using <b> tags. Do NOT bold words within <ul> lists.
-    - Ensure the response is at least {wordCount} words. Expand each section thoughtfully with relevant details.
-    - Make the tone fit the nature of the role (e.g., formal for full-time, friendly for internships).
-    - If any field is missing or empty, use generic placeholders (e.g., 'Not specified' for location, 'Competitive compensation' for package).
-    -Do NOT MENTION ANY NOTES at the end of description.
-    -DO NOT MENTION THIS IN DESCRIPTION "Note: The output is ready to copy-paste into a web page or email client that supports HTML formatting. I've followed the provided format and instructions, and the response is at least 800 words
-    -adhere to the provided format without adding extraneous content with other headings like vacancies,last date to apply even fo contract-based stick to the given format no need to mention vacancies and last date to apply".
-    - For the "Required Skills & Qualifications" section, interpret the {{eligibility}} field as follows:
-    - If {{eligibility}} is "Freshers", suggest "Freshers to 3 years experience" unless otherwise specified.
-    - If {{eligibility}} contains a range (e.g., "1 to 3 years" or "Freshers to 3 years"), use that range.
-    - If {{eligibility}} includes both "Freshers" and experience years (e.g., "Freshers to 3 years" or "Freshers and 1-3 years"), mention both Freshers and the experience range.
-    - If {{eligibility}} specifies only experience years (e.g., "1 to 3 years" or "2-5 years"), include only that experience range.
+    CRITICAL INSTRUCTIONS - FOLLOW STRICTLY:
+    1. SKILLS SECTION: Use ONLY the skills listed in "Required Skills: {{skills}}". DO NOT add any skills that are not explicitly mentioned.
+    2. EXPERIENCE SECTION: Use EXACTLY "{{preferredExperience}}" as provided. DO NOT change the experience range.
+    3. EDUCATION: Use "{{educationRequirements}}" as provided. If it says "any", mention "Any educational background" or similar.
+    4. DO NOT hallucinate or invent additional requirements, skills, or qualifications.
+    5. Use only <b> tags for bold, not **. 
+    6. Your response should be suitable for direct copy-pasting into a web page or email client that supports HTML formatting.
+    7. For all <ul> lists, ensure there are NO extra line breaks or spaces between <li> elements.
+    8. Ensure exactly one <br> tag between sections for clean spacing.
+    9. Strictly follow the format provided above. DO NOT add extra fields or sections.
+    10. Within paragraph sections, bold the important words listed above using <b> tags. Do NOT bold words within <ul> lists.
+    11. Ensure the response is at least {wordCount} words by elaborating on the role context, company culture, and responsibilities - NOT by adding extra skills or requirements.
+    12. Make the tone fit the nature of the role (e.g., formal for full-time, friendly for internships).
+    13. DO NOT MENTION ANY NOTES at the end of description.
+    14. DO NOT mention vacancies and last date to apply in the description body.
+    15. If Gender Preference is "Any", DO NOT mention it in the description.
+    16. Keywords ({{keywords}}) should be naturally integrated into the description, not listed separately.
     """)
 
     chain = LLMChain(llm=llm, prompt=prompt)
