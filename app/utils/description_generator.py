@@ -675,7 +675,9 @@ def generate_pass_opportunity_description(data):
     company_type = data.get("companyType", "company")
 
     # Check if this is a POP form
-    is_pop_form = data.get("opportunityType", "").upper() == "POP" or data.get("postType", "").upper() == "POP"
+    opportunity_type = data.get("opportunityType", "") or ""
+    post_type = data.get("postType", "") or ""
+    is_pop_form = str(opportunity_type).upper() == "POP" or str(post_type).upper() == "POP"
 
     # Handle company name based on type
     if company_type == "individual":
@@ -742,8 +744,8 @@ def generate_pass_opportunity_description(data):
             "extractedText": "No additional context from image",
             "wordCount": wordCount,
             "vacancy": str(vacancy).strip() if vacancy and str(vacancy).strip() else "",
-            "package": package.strip() if package and package.strip() else "",
-            "eligibility": eligibility.strip() if eligibility and eligibility.strip() else ""
+            "package": package.strip() if isinstance(package, str) and package.strip() else "",
+            "eligibility": eligibility.strip() if isinstance(eligibility, str) and eligibility.strip() else ""
         }
 
     groq_api_key = os.getenv("GROQ_API_KEY")

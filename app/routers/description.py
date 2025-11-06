@@ -178,17 +178,20 @@ async def generate_description_endpoint(data: DescriptionRequest):
 
 
 @router.post("/generate-pass")
-async def generate_pass_description_endpoint(data: DescriptionRequest):
+async def generate_pass_description_endpoint(data: dict):
     """Generate description for passed opportunity"""
     try:
-        data_dict = data.dict()
-        
+        data_dict = data.copy()
+
         # Process skills if provided
-        if data.skillsRequired and isinstance(data.skillsRequired, str):
-            data_dict["skillsRequired"] = [s.strip() for s in data.skillsRequired.split(",") if s.strip()]
+        skills_required = data.get("skillsRequired")
+        if skills_required and isinstance(skills_required, str) and skills_required.strip():
+            try:
+                data_dict["skillsRequired"] = [s.strip() for s in skills_required.split(",") if s and s.strip()]
+            except Exception as e:
+                data_dict["skillsRequired"] = []
         else:
             data_dict["skillsRequired"] = []
-
         response = generate_pass_opportunity_description(data_dict)
         cleaned_response = clean_html_spacing(response)
         
