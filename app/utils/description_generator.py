@@ -673,10 +673,22 @@ Format:
 def generate_pass_opportunity_description(data):
     wordCount = data.get("wordCount", 800) or 800
     company_type = data.get("companyType", "company")
-    company_name = (data.get("companyName", "") or "Individual").strip()
-    opportunity_title = html.escape(data.get("opportunityTitle", "") or "Untitled Opportunity")
-    opportunity_type = data.get("opportunityType", "") or "Not specified"
-    skills = data.get("skillsRequired", []) or []
+
+    # Check if this is a POP form
+    is_pop_form = data.get("opportunityType", "").upper() == "POP" or data.get("postType", "").upper() == "POP"
+
+    # Handle company name based on type
+    if company_type == "individual":
+        company_name = (data.get("individualCompanyName", "") or "Individual").strip()
+    else:
+        company_name = (data.get("companyName", "") or "Company").strip()
+
+    # Map frontend field names to expected backend names
+    opportunity_title = html.escape(data.get("title", "") or data.get("opportunityTitle", "") or "Untitled Opportunity")
+    opportunity_type = data.get("postType", "") or data.get("opportunityType", "") or "Not specified"
+
+    # Handle skills - can come as string or array
+    skills = data.get("skills", []) or data.get("skillsRequired", []) or []
     if isinstance(skills, str):
         skills = [s.strip() for s in skills.split(",") if s.strip()]
 
@@ -699,10 +711,25 @@ def generate_pass_opportunity_description(data):
         }
     else:
         # Use field data when no image is submitted
-        location = data.get("location", "") or "Not specified"
+        location = (data.get("location", "") or data.get("address", "") or "").strip() or "Not specified"
         work_mode = data.get("workMode", "") or "Not specified"
-        time_commitment = data.get("timeCommitment", "") or "Not specified"
-        important_words = list(set([company_name] + skills))
+        time_commitment = data.get("timeCommitment", "") or data.get("workDuration", "") or "Not specified"
+
+        # Safely handle optional fields - skip if None or empty
+        vacancy = data.get("vacancy", "")
+        package = data.get("package", "")
+        eligibility = data.get("eligibility", "")
+        keywords = data.get("keywords", [])
+
+        # Build important words list safely
+        important_words = [company_name]
+        if skills:
+            important_words.extend(skills)
+        if isinstance(keywords, str) and keywords.strip():
+            important_words.extend([k.strip() for k in keywords.split(",") if k.strip()])
+        elif isinstance(keywords, list):
+            important_words.extend([k for k in keywords if k and k.strip()])
+
         prompt_data = {
             "companyName": company_name,
             "opportunityTitle": opportunity_title,
@@ -711,9 +738,12 @@ def generate_pass_opportunity_description(data):
             "workMode": work_mode,
             "timeCommitment": time_commitment,
             "skillsRequired": ", ".join(skills) if skills else "Not specified",
-            "important_words": ", ".join(important_words) if important_words else "None",
+            "important_words": ", ".join(set(important_words)) if important_words else "None",
             "extractedText": "No additional context from image",
-            "wordCount": wordCount
+            "wordCount": wordCount,
+            "vacancy": str(vacancy).strip() if vacancy and str(vacancy).strip() else "",
+            "package": package.strip() if package and package.strip() else "",
+            "eligibility": eligibility.strip() if eligibility and eligibility.strip() else ""
         }
 
     groq_api_key = os.getenv("GROQ_API_KEY")
@@ -726,7 +756,29 @@ def generate_pass_opportunity_description(data):
                 model_name="llama-3.1-8b-instant"
     )
 
-    if company_type in ["company", "Adept"]:
+    # Special handling for POP forms
+    if is_pop_form:
+        format_instruction = """
+Format for POP (Pass Opportunity):
+<b>About the Opportunity:</b><br>
+[Brief overview of the passed opportunity based on provided details.]<br><br>
+
+<b>Key Details:</b><br>
+<ul>
+    <li>[Include any available details like location, skills, duration, etc.]</li>
+    <li>[Focus on what makes this opportunity interesting or suitable]</li>
+</ul><br><br>
+
+<b>Requirements & Preferences:</b><br>
+<ul>
+    <li>[List any specified requirements, skills, or preferences]</li>
+    <li>[Include eligibility criteria if provided]</li>
+</ul><br><br>
+
+<b>Additional Information:</b><br>
+[Include any other relevant details like package, vacancy count, or special notes.]
+"""
+    elif company_type in ["company", "Adept"]:
         format_instruction = """
 Format:
 <b>About the Company:</b><br>
@@ -812,6 +864,9 @@ Format:
     - Work Mode: {{workMode}}
     - Time Commitment: {{timeCommitment}}
     - Skills Required: {{skillsRequired}}
+    - Vacancy: {{vacancy}}
+    - Package: {{package}}
+    - Eligibility: {{eligibility}}
 
     Important words to bold: {{important_words}}
 
