@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import orjson
 
-from .routers import resume, description
+from .routers import resume, description, recommendations
 
 
 def orjson_dumps(v, *, default):
@@ -36,3 +36,4 @@ async def health():
 
 app.include_router(resume.router, prefix="/api")
 app.include_router(description.router, prefix="/api")
+app.include_router(recommendations.router, prefix="/api")
