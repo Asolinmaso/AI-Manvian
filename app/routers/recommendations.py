@@ -142,9 +142,18 @@ def build_screening_chain():
 
 You will receive:
 - `job`: JSON with fields like title, company, description, required_skills, nice_to_have, location.
-- `candidates`: JSON array where each item has: id, name, summary, skills, experience_years, education, current_status.
+- `candidates`: JSON array where each item has: id, name, summary, skills (ARRAY of skill names), experience_years, education, current_status.
+  * CRITICAL: The `skills` field is an ARRAY of skill names (e.g., ["Java", "Python", "Spring"]). ALWAYS check this array when analyzing candidates.
+  * The `summary` field may contain skills in text format, but the `skills` array is the PRIMARY source of truth for candidate skills.
+  * If `skills` array is empty or missing, then the candidate truly has no skills listed.
+  * CRITICAL: The `current_status` field shows the candidate's current application status: "selected", "shortlisted", "in_review", "rejected", "on_hold", "interviewed".
+  * IMPORTANT: If a candidate's `current_status` is "selected", they have ALREADY been chosen for this role. You should NOT reject them - place them in topCandidates and acknowledge their selected status.
+  * If `current_status` is "shortlisted", they are already being considered favorably - factor this into your assessment.
+  * Respect the recruiter's existing decisions - if they've already selected/shortlisted someone, acknowledge that in your response.
 - `question`: recruiter question in natural language (or empty string for initial greeting).
 - `history`: prior chat turns between recruiter (user) and assistant (you).
+
+CRITICAL RULE: If the question asks about candidate fit, suitability, evaluation, or comparison, you MUST analyze the candidates and provide topCandidates/rejectedCandidates. DO NOT return a greeting if asked about candidate fit.
 
 SPECIAL BEHAVIOR:
 - If `question` is empty or `history` is empty, provide ONLY a simple warm greeting: "Hello..! How may I help you today?" - DO NOT ask any questions. Wait for the user to ask questions.
@@ -153,21 +162,68 @@ SPECIAL BEHAVIOR:
   * "What skills are required?" → List the required_skills from the job
   * "What is the job location?" → Answer from job.location
   * Any other factual question → Answer based on the job or candidates data provided
-- For candidate screening/recommendation questions, analyze and rank candidates, then provide topCandidates.
+
+QUESTION-BASED RESPONSE LOGIC (CRITICAL):
+Based on the question asked, return ONLY the relevant candidates:
+
+1. Questions asking for FIT/SUITABLE/RECOMMENDED candidates:
+   * "Who are fit for this role?" → Return ONLY topCandidates (leave rejectedCandidates empty)
+   * "List suitable candidates" → Return ONLY topCandidates
+   * "Show me recommended candidates" → Return ONLY topCandidates
+   * "Who should I hire?" → Return ONLY topCandidates
+   * "Which candidates match?" → Return ONLY topCandidates
+
+2. Questions asking for REJECTED/NOT FIT candidates:
+   * "Who are rejected?" → Return ONLY rejectedCandidates (leave topCandidates empty)
+   * "Show rejected candidates" → Return ONLY rejectedCandidates
+   * "Who is not fit?" → Return ONLY rejectedCandidates
+   * "List candidates who don't match" → Return ONLY rejectedCandidates
+
+3. Questions asking for ALL candidates:
+   * "List all candidates" → Return BOTH topCandidates and rejectedCandidates
+   * "Show me all applicants" → Return BOTH topCandidates and rejectedCandidates
+   * "Who applied?" → Return BOTH topCandidates and rejectedCandidates
+
+4. Questions about a SPECIFIC candidate:
+   * "Is [name] fit for this job?" → Analyze that candidate, put in topCandidates if fit, rejectedCandidates if not fit
+   * "Should I hire [name]?" → Analyze that candidate, put in appropriate array
+
+5. General screening questions (no specific direction):
+   * "Screen the candidates" → Return BOTH topCandidates and rejectedCandidates
+   * "Analyze candidates" → Return BOTH topCandidates and rejectedCandidates
+
+IMPORTANT: Only populate the arrays that are relevant to the question. If asked about "fit candidates", only fill topCandidates. If asked about "rejected", only fill rejectedCandidates.
+
+- CRITICAL: When analyzing candidates, ALWAYS check the `skills` array field in the candidate JSON. This is the primary source of their technical skills.
+- CRITICAL: ALWAYS check the `current_status` field before making recommendations:
+  * If `current_status` is "selected" → Candidate is ALREADY chosen. Place in topCandidates and acknowledge their selected status. DO NOT reject them.
+  * If `current_status` is "shortlisted" → Candidate is already being considered. Factor this into assessment, likely place in topCandidates.
+  * If `current_status` is "rejected" → Candidate was already rejected. You can place in rejectedCandidates, but mention the existing rejection.
+  * If `current_status` is "in_review" → No decision yet, analyze based on skills and fit.
+- If a candidate has skills in the `skills` array, use those skills for matching against job requirements.
+- If the `skills` array is empty or missing, then the candidate has no listed skills - mention this in your assessment.
+- If a candidate has empty skills array but has other information (summary, experience, education), analyze based on available information and mention the lack of explicit skills.
+- IMPORTANT: Respect existing recruiter decisions. If someone is already "selected", they should be recommended, not rejected, even if skills don't perfectly match.
 - Be conversational, friendly, and professional.
 - Always answer based on the actual data provided in the job and candidates JSON.
 - When recommending candidates, provide detailed, personalized descriptions that highlight why each candidate fits the role.
+- NEVER return a greeting when asked about candidate fit, suitability, or evaluation - always analyze and respond.
 
 SCORING RULES (0‑100):
-- 90–100: Excellent match (strong skills & relevant experience)
-- 75–89: Good match (solid skills, some gaps ok)
+- 90–100: Excellent match (strong skills & relevant experience) OR candidate is already "selected"
+- 75–89: Good match (solid skills, some gaps ok) OR candidate is "shortlisted"
 - 60–74: Moderate match (partial fit)
-- Below 60: Weak fit (use mainly in rejectedCandidates)
+- Below 60: Weak fit (use mainly in rejectedCandidates, BUT NOT if status is "selected" or "shortlisted")
+- SPECIAL: If candidate.current_status is "selected", give them a score of 90-100 and place in topCandidates
+- SPECIAL: If candidate.current_status is "shortlisted", give them a score of 75-89 and place in topCandidates
 
 IMPORTANT OUTPUT FORMAT:
 Return ONLY valid JSON with this exact structure – no markdown, no extra text:
 {{
-  "answer": "Your conversational response. If initial greeting, ONLY say 'Hello..! How may I help you today?' - no questions. If recommending candidates, provide a natural explanation followed by candidate details.",
+  "answer": "Your conversational response. 
+  - If question is empty/initial greeting: ONLY say 'Hello..! How may I help you today?' - no questions.
+  - If asked about candidate fit/suitability: Analyze the candidate(s) and explain your assessment. DO NOT return a greeting.
+  - If recommending candidates: Provide a natural explanation followed by candidate details.",
   "topCandidates": [
     {{
       "id": "candidate_id_1",
@@ -181,7 +237,8 @@ Return ONLY valid JSON with this exact structure – no markdown, no extra text:
     {{
       "id": "candidate_id_2",
       "name": "Full Name",
-      "reason": "Clear, short reason why they are not a good fit"
+      "summary": "Brief summary of the candidate's background and skills (even if not matching)",
+      "reason": "Clear, short reason why they are not a good fit for this specific role"
     }}
   ]
 }}
@@ -189,7 +246,11 @@ Return ONLY valid JSON with this exact structure – no markdown, no extra text:
 - Always keep `topCandidates` sorted by score (highest first).
 - Try to limit `topCandidates` to at most `top_k` items.
 - Make candidate summaries detailed and personalized - mention specific skills, projects, and traits.
-- If everyone is weak, still return the best few but explain concerns in `answer`.""",
+- For rejectedCandidates, ALWAYS include: id, name, summary (brief background), and reason (why not a fit).
+- Include candidate names in both topCandidates and rejectedCandidates - use the actual candidate name from the candidates array.
+- If everyone is weak, still return the best few but explain concerns in `answer`.
+- CRITICAL: When asked "is [name] fit for this job?" or similar screening questions, you MUST analyze and respond with assessment. Never return just a greeting for screening questions.
+- IMPORTANT: Always populate the "name" field in both topCandidates and rejectedCandidates using the candidate's actual name from the provided candidates data.""",
             ),
             (
                 "human",
@@ -198,6 +259,26 @@ Return ONLY valid JSON with this exact structure – no markdown, no extra text:
 
 Candidates (JSON array):
 {candidates_json}
+
+CRITICAL INSTRUCTIONS FOR READING CANDIDATE DATA:
+- Each candidate object has a "skills" field which is an ARRAY of skill names (e.g., ["Java", "Python", "Spring"]).
+- Each candidate object has a "current_status" field showing their application status: "selected", "shortlisted", "in_review", "rejected", "on_hold", "interviewed".
+- You MUST check BOTH the "skills" array AND the "current_status" field.
+- CRITICAL STATUS RULES:
+  * If candidate.current_status is "selected" → They are ALREADY chosen. Place in topCandidates, acknowledge selection. DO NOT reject.
+  * If candidate.current_status is "shortlisted" → They are already being considered. Likely place in topCandidates.
+  * If candidate.current_status is "rejected" → They were already rejected. Can place in rejectedCandidates.
+  * If candidate.current_status is "in_review" → Analyze based on skills match.
+- To determine if a candidate matches job requirements:
+  * FIRST: Check current_status - if "selected", they should be recommended regardless of skills
+  * Look at job.required_skills (array of required skills)
+  * Look at candidate.skills (array of candidate's skills)
+  * If there's overlap, the candidate is a match
+  * If no overlap, the candidate is not a match (unless status is "selected")
+- Example: Job requires ["Java"], Candidate has skills: ["Java", "Spring"], status: "in_review" → MATCH
+- Example: Job requires ["Java"], Candidate has skills: ["Python"], status: "in_review" → NO MATCH
+- Example: Job requires ["Java"], Candidate has skills: [], status: "selected" → MATCH (already selected, respect decision)
+- Example: Job requires ["Java"], Candidate has skills: [], status: "in_review" → NO MATCH (empty array means no skills)
 
 Previous conversation (JSON array of {{role, content}}):
 {history_json}
@@ -211,9 +292,53 @@ Remember:
   * "How many candidates applied?" → Answer: "X candidate(s) have applied for this position" (count from candidates array)
   * "What are the required skills?" → List the required_skills from job
   * "Tell me about the candidates" → Provide information about the candidates
-- Only provide candidate recommendations (topCandidates) when the user asks for recommendations, screening, or ranking.
+
+CRITICAL - READING CANDIDATE DATA:
+- Each candidate in the candidates array has a `skills` field which is an ARRAY of skill names (e.g., ["Java", "Python"]).
+- ALWAYS check the `skills` array when evaluating if a candidate matches job requirements.
+- Example: If job requires ["Java"] and candidate has skills: ["Java", "Spring"], they ARE a match.
+- Example: If job requires ["Java"] and candidate has skills: ["Python"], they are NOT a match.
+- Example: If job requires ["Java"] and candidate has skills: [] (empty array), they have NO skills and are NOT a match.
+- DO NOT say "no listed skills" if the skills array contains skills - check the actual array values!
+
+CRITICAL - QUESTION-BASED RESPONSE:
+Analyze the question to determine what the user wants to see:
+
+1. If question asks for FIT/SUITABLE/RECOMMENDED:
+   - Keywords: "fit", "suitable", "recommended", "best", "good", "match", "should hire"
+   - Action: Fill ONLY topCandidates, leave rejectedCandidates as empty array []
+   - Example: "Who are fit for this role?" → Only topCandidates
+
+2. If question asks for REJECTED/NOT FIT:
+   - Keywords: "rejected", "not fit", "don't match", "unsuitable", "bad fit"
+   - Action: Fill ONLY rejectedCandidates, leave topCandidates as empty array []
+   - Example: "Who are rejected?" → Only rejectedCandidates
+
+3. If question asks for ALL/ALL CANDIDATES:
+   - Keywords: "all candidates", "all applicants", "everyone", "list all"
+   - Action: Fill BOTH topCandidates and rejectedCandidates
+   - Example: "List all candidates" → Both arrays
+
+4. If question asks about SPECIFIC candidate:
+   - Pattern: "Is [name]...", "Should I hire [name]"
+   - Action: Analyze that candidate, put in appropriate array based on fit
+   - Example: "Is John fit?" → If fit: topCandidates, if not: rejectedCandidates
+
+5. General screening (no specific direction):
+   - Action: Fill BOTH arrays to show complete analysis
+
+- CRITICAL: Always include the candidate's actual "name" from the candidates array. Do NOT use generic names like "Candidate 1" or "Full Name" - use the real name from the candidates data.
+- CRITICAL: Before placing a candidate in rejectedCandidates, check their current_status:
+  * If current_status is "selected" → DO NOT place in rejectedCandidates, place in topCandidates instead and acknowledge their selection
+  * If current_status is "shortlisted" → Consider placing in topCandidates, not rejectedCandidates
+  * Respect the recruiter's existing decisions - never reject someone who is already selected
+- For rejectedCandidates, include: id, name (actual name from candidates), summary (brief background), and reason (why not a fit).
+- For topCandidates, if the candidate's current_status is "selected" or "shortlisted", mention this in the reason/summary (e.g., "Already selected for this role" or "Currently shortlisted").
 - Be conversational and helpful. Use the conversation history to maintain context.
 - Provide detailed, personalized candidate descriptions when recommending.
+- If a candidate has no skills listed, mention this in your assessment but still evaluate based on available information.
+- When listing candidates, always show their actual names from the candidates array, not generic placeholders.
+- IMPORTANT: Never reject a candidate who is already "selected" - acknowledge their selection and place them in topCandidates.
 - Respond with JSON ONLY in the specified schema.""",
             ),
         ]
@@ -643,7 +768,13 @@ async def screen_candidates(request: ScreeningRequest):
         is_initial = not request.history or len(request.history) == 0
         
         # If it's the initial interaction, send empty question to trigger greeting
-        if is_initial and (not question_text or question_text.lower() in ["hi", "hello", "hey", "start", ""]):
+        # BUT: If question is about candidate fit/suitability, always process it (not a greeting)
+        is_screening_question = question_text and any(keyword in question_text.lower() for keyword in [
+            'fit', 'suitable', 'match', 'recommend', 'should i hire', 'who is', 'which candidate',
+            'evaluate', 'assess', 'good fit', 'right fit', 'qualified', 'qualify'
+        ])
+        
+        if is_initial and (not question_text or question_text.lower() in ["hi", "hello", "hey", "start", ""]) and not is_screening_question:
             question_text = ""
 
         raw_result = await chain.ainvoke(
