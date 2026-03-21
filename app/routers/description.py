@@ -3,20 +3,10 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 import os
 import re
-import platform
-import pytesseract
-from PIL import Image
-import io
-import shutil
 from ..utils.description_generator import generate_description, generate_pass_opportunity_description, clean_html_spacing
+from ..utils.extraction import extract_text_from_file
 
 router = APIRouter(prefix="/description", tags=["description"])
-
-# Configure Tesseract path based on platform
-if platform.system() == 'Windows':
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:
-    pytesseract.pytesseract.tesseract_cmd = os.environ.get('TESSERACT_CMD', '/usr/bin/tesseract')
 
 
 class DescriptionRequest(BaseModel):
@@ -57,21 +47,15 @@ class DescriptionRequest(BaseModel):
 
 @router.post("/extract-text")
 async def extract_text(file: UploadFile = File(...)):
-    """Extract text from uploaded image using OCR"""
-    if not file.content_type or not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
+    """Extract text from uploaded image or document using unified extraction utility"""
     try:
-        if not shutil.which('tesseract'):
-            raise HTTPException(status_code=503, detail="Tesseract is not installed on this server. Contact support.")
-        
-        content = await file.read()
-        img = Image.open(io.BytesIO(content))
-        extracted_text = pytesseract.image_to_string(img)
+        extracted_text = await extract_text_from_file(file)
+        if not extracted_text:
+            raise HTTPException(status_code=400, detail="Could not extract text from the provided file.")
         
         return {"text": extracted_text.strip()}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to extract text: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
 
 @router.post("/generate")

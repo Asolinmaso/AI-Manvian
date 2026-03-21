@@ -11,7 +11,7 @@ except Exception:  # fallback for older versions
 	JsonOutputParser = None  # type: ignore
 from langchain_core.runnables import RunnableParallel
 from langchain_core.messages import HumanMessage, SystemMessage
-from ..utils.text_extract import extract_text_from_file
+from ..utils.extraction import extract_text_from_file
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
