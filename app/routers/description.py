@@ -5,6 +5,13 @@ import os
 import re
 from ..utils.description_generator import generate_description, generate_pass_opportunity_description, clean_html_spacing
 from ..utils.extraction import extract_text_from_file
+from langchain_groq import ChatGroq
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema import StrOutputParser
+try:
+    from langchain_core.output_parsers import JsonOutputParser
+except Exception:
+    JsonOutputParser = None
 
 router = APIRouter(prefix="/description", tags=["description"])
 
@@ -185,7 +192,102 @@ async def generate_pass_description_endpoint(data: dict):
         raise HTTPException(status_code=500, detail=f"Failed to generate description: {str(e)}")
 
 
-@router.post("/pass-opportunity")
-async def pass_opportunity(data: DescriptionRequest):
-    """Pass opportunity endpoint"""
-    return {"message": "Opportunity passed successfully!"}
+@router.post("/parse-opportunity")
+async def parse_opportunity_endpoint(
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    model: Optional[str] = Form(None)
+):
+    """Parse text or image into a structured Opportunity JSON"""
+    try:
+        content_text = text
+        if file:
+            extracted = await extract_text_from_file(file)
+            content_text = extracted
+
+        if not content_text or len(content_text.strip()) < 5:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text to parse.")
+
+        SYSTEM_PROMPT = (
+            "You are an expert recruitment assistant specializing in Indian job markets. "
+            "Your task is to accurately extract job details into high-fidelity structured data. "
+            "Return ONLY valid JSON. Provide all keys listed below. "
+            "CRITICAL: If a value is missing, use empty strings (\"\") or empty arrays ([]). "
+            "DO NOT invent, hallucinate, or assume information. Only extract what is clearly and explicitly stated. "
+            "For salary, look for keywords like 'LPA', 'per month', 'Take-home'. "
+            "For contact information, look for HR names, phone numbers (typically 10 digits), and emails."
+        )
+        JSON_SCHEMA = """
+        Required JSON Keys:
+        - opportunityTitle (string): Full role title
+        - opportunityType (string): MUST be one of: "Full-time", "Part-time", "Internship (Stipend)", "Internship (Unpaid)", "Contract-based", "Project (Freelancer)"
+        - workDuration (string): Duration of contract/internship (e.g. "6 months")
+        - location (string): Full address including specific locality, city and state (e.g. "Tavarekere, Bengaluru, Karnataka")
+        - workMode (string): MUST be one of: "On-site", "Remote", "Hybrid"
+        - noOfOpenings (string): Number of positions
+        - lastDateToApply (string): Deadline date in YYYY-MM-DD or standard format
+        - educationRequirements (list of strings): Any from ["any", "10th-grade", "12th-grade", "under-graduate", "post-graduate", "phd", "other", "not-necessary"]
+        - industryExpertise (string): Extract the primary sector (e.g. "Manufacturing", "IT", etc.). Match with known categories if possible.
+        - preferredExperience (object):
+          - minNumber (string): Minimum years (just the number)
+          - minUnit (string): "years" or "months"
+          - maxNumber (string): Maximum years (just the number)
+          - maxUnit (string): "years" or "months"
+          - fresher (boolean): true if freshers are eligible
+        - skillsRequired (list of strings): Key technical or soft skills
+        - salaryRange (object):
+          - min (string): Minimum salary (just the number as string)
+          - max (string): Maximum salary (just the number as string)
+        - recruiterContacts (list of objects):
+          - recruiterName (string): Name of contact person
+          - phoneNumber (string): 10-digit mobile number
+          - emailAddress (string): Valid email address
+        - description (string): Detailed, professional summary of the role, responsibilities, and benefits/perks extracted from text.
+        - keywords (list of strings): SEO-friendly keywords related to the job
+        - genderPreference (string): "Male", "Female", or "Any"
+        - timeCommitment (string): "Full-time", "Part-time", or specific hours
+        - languagePreference (list of strings): Required languages (e.g. ["English", "Tamil"])
+        """
+        
+        llm = ChatGroq(
+            temperature=0.1,
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            model_name=model or "llama-3.1-8b-instant"
+        )
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT + "\n" + JSON_SCHEMA),
+            ("human", "Parse this:\n\n{text}")
+        ])
+        
+        if JsonOutputParser is not None:
+            chain = prompt | llm | JsonOutputParser()
+        else:
+            chain = prompt | llm | StrOutputParser()
+            
+        result = await chain.ainvoke({"text": content_text[:100000]})
+        
+        import json
+        if isinstance(result, dict):
+            parsed = result
+        else:
+            cleaned_text = result.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            if cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            try:
+                parsed = json.loads(cleaned_text)
+            except Exception:
+                start = cleaned_text.find("{")
+                end = cleaned_text.rfind("}")
+                if start != -1 and end != -1:
+                    parsed = json.loads(cleaned_text[start:end+1])
+                else:
+                    parsed = {}
+                    
+        return {"data": parsed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
